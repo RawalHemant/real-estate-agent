@@ -1,15 +1,14 @@
 import NodeCache from "node-cache";
 
-/**
- * Simple in-memory cache layer.
- * Keys are normalized location strings; values are report JSON.
- */
+//Simple in-memory cache layer.
+//Keys are normalized location strings; values are report JSON.
+
 class CacheService {
   constructor(ttlSeconds = 3600) {
     this.cache = new NodeCache({ stdTTL: ttlSeconds, checkperiod: 120 });
   }
 
-  /** Generate a stable cache key from a location string. */
+  // Generate a stable cache key from a location string.
   _key(location) {
     return `report:${location.toLowerCase().replace(/\s+/g, "_")}`;
   }

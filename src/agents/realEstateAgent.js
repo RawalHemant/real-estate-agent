@@ -1,30 +1,26 @@
 import { buildSystemPrompt, buildUserPrompt } from "./prompts.js";
 
-/**
- * RealEstateAgent
- *
- * Orchestrates:
- *  1. Prompt construction
- *  2. LLM invocation
- *  3. Response parsing & validation
- *  4. Cache read/write
- */
+//Orchestrates:
+// 1. Prompt construction
+// 2. LLM invocation
+// 3. Response parsing & validation
+// 4. Cache read/write
+
 class RealEstateAgent {
-  /**
-   * @param {import('../services/llmService.js').default} llmService
-   * @param {import('../cache/cacheService.js').default} cacheService
-   */
+ 
+//  @param {import('../services/llmService.js').default} llmService
+//  @param {import('../cache/cacheService.js').default} cacheService
+
   constructor(llmService, cacheService) {
     this.llm = llmService;
     this.cache = cacheService;
   }
 
-  /**
-   * Generate a market research report for the given location.
-   * @param {string} location  — city name or "lat, lng"
-   * @param {string} locationType — "city" | "coordinates"
-   * @returns {Promise<object>} parsed report JSON
-   */
+    // Generate a market research report for the given location.
+    // @param {string} location  — city name or "lat, lng"
+    // @param {string} locationType — "city" | "coordinates"
+    // @returns {Promise<object>} parsed report JSON
+   
   async generateReport(location, locationType) {
     // 1. Check cache
     const cached = this.cache.get(location);
@@ -52,10 +48,9 @@ class RealEstateAgent {
     return report;
   }
 
-  /**
-   * Robustly parse JSON from LLM output.
-   * Handles cases where the model wraps JSON in markdown code fences.
-   */
+  //  Robustly parse JSON from LLM output.
+  //  Handles cases where the model wraps JSON in markdown code fences.
+  
   _parseJSON(raw) {
     let cleaned = raw.trim();
 

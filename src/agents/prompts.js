@@ -1,11 +1,9 @@
-/**
- * Builds structured prompts for real estate market research.
- *
- * Design decisions:
- *  - System prompt sets the agent persona and enforces JSON output.
- *  - User prompt supplies location context and the exact schema expected.
- *  - We request structured JSON so downstream consumers can parse reliably.
- */
+
+// Builds structured prompts for real estate market research.
+// Design decisions:
+//  - System prompt sets the agent persona and enforces JSON output.
+//  - User prompt supplies location context and the exact schema expected.
+//  - We request structured JSON so downstream consumers can parse reliably.
 
 export function buildSystemPrompt() {
   return `You are an expert real estate market research analyst with deep knowledge of property markets worldwide. Your role is to generate comprehensive, data-driven market research reports.
