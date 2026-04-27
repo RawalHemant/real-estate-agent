@@ -3,49 +3,91 @@ import PDFDocument from "pdfkit";
 const PAGE_MARGIN = 50;
 const PAGE_WIDTH = 595.28;
 const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2;
+const FOOTER_HEIGHT = 30;
+const USABLE_BOTTOM_OFFSET = PAGE_MARGIN + FOOTER_HEIGHT;
+
+function getUsableBottom(doc) {
+  return doc.page.height - USABLE_BOTTOM_OFFSET;
+}
 
 function ensureSpace(doc, heightNeeded = 24) {
-  if (doc.y + heightNeeded > doc.page.height - PAGE_MARGIN) {
+  if (doc.y + heightNeeded > getUsableBottom(doc)) {
     doc.addPage();
   }
 }
 
+function safeText(value) {
+  if (value === null || value === undefined || value === "") {
+    return "N/A";
+  }
+
+  return String(value);
+}
+
+function measureTextHeight(doc, text, options = {}) {
+  return doc.heightOfString(safeText(text), {
+    width: CONTENT_WIDTH,
+    ...options,
+  });
+}
+
 function addSectionTitle(doc, title) {
-  ensureSpace(doc, 30);
+  ensureSpace(doc, 36);
+  doc.moveDown(0.5);
   doc
-    .moveDown(0.6)
     .font("Helvetica-Bold")
     .fontSize(15)
     .fillColor("#12355B")
     .text(title, PAGE_MARGIN, doc.y, { width: CONTENT_WIDTH });
 
+  const lineY = doc.y + 4;
   doc
-    .moveDown(0.2)
     .lineWidth(1)
     .strokeColor("#D8E1EA")
-    .moveTo(PAGE_MARGIN, doc.y)
-    .lineTo(PAGE_MARGIN + CONTENT_WIDTH, doc.y)
-    .stroke()
-    .moveDown(0.4);
+    .moveTo(PAGE_MARGIN, lineY)
+    .lineTo(PAGE_MARGIN + CONTENT_WIDTH, lineY)
+    .stroke();
+
+  doc.y = lineY + 10;
 }
 
 function addLabelValue(doc, label, value, options = {}) {
-  const safeValue = value ?? "N/A";
-  ensureSpace(doc, 20);
+  const labelText = `${label}: `;
+  const valueText = safeText(value);
+  const fontSize = options.valueSize || 10;
+  const lineGap = options.lineGap || 2;
+
+  doc.font("Helvetica-Bold").fontSize(fontSize);
+  const labelWidth = doc.widthOfString(labelText);
+  const valueWidth = Math.max(CONTENT_WIDTH - labelWidth, 120);
+  const valueHeight = doc.heightOfString(valueText, {
+    width: valueWidth,
+    lineGap,
+  });
+  const rowHeight = Math.max(valueHeight, fontSize + 4);
+
+  ensureSpace(doc, rowHeight + 6);
+
+  const startY = doc.y;
   doc
     .font("Helvetica-Bold")
-    .fontSize(options.labelSize || 10)
+    .fontSize(fontSize)
     .fillColor("#1F2937")
-    .text(`${label}: `, PAGE_MARGIN, doc.y, {
-      continued: true,
-      width: CONTENT_WIDTH,
-    })
-    .font("Helvetica")
-    .fontSize(options.valueSize || 10)
-    .fillColor("#374151")
-    .text(String(safeValue), {
-      width: CONTENT_WIDTH,
+    .text(labelText, PAGE_MARGIN, startY, {
+      width: labelWidth,
+      lineBreak: false,
     });
+
+  doc
+    .font("Helvetica")
+    .fontSize(fontSize)
+    .fillColor("#374151")
+    .text(valueText, PAGE_MARGIN + labelWidth, startY, {
+      width: valueWidth,
+      lineGap,
+    });
+
+  doc.y = startY + rowHeight + 4;
 }
 
 function addParagraphs(doc, text) {
@@ -59,17 +101,22 @@ function addParagraphs(doc, text) {
     .filter(Boolean);
 
   paragraphs.forEach((paragraph) => {
-    ensureSpace(doc, 40);
+    doc.font("Helvetica").fontSize(10.5);
+    const paragraphHeight = measureTextHeight(doc, paragraph, {
+      align: "left",
+      lineGap: 3,
+    });
+
+    ensureSpace(doc, paragraphHeight + 8);
     doc
-      .font("Helvetica")
-      .fontSize(10.5)
       .fillColor("#374151")
       .text(paragraph, PAGE_MARGIN, doc.y, {
         width: CONTENT_WIDTH,
-        align: "justify",
+        align: "left",
         lineGap: 3,
-      })
-      .moveDown(0.4);
+      });
+
+    doc.moveDown(0.4);
   });
 }
 
@@ -80,13 +127,19 @@ function addBullets(doc, items) {
   }
 
   items.forEach((item) => {
-    ensureSpace(doc, 18);
+    doc.font("Helvetica").fontSize(10);
+    const bulletIndent = 14;
+    const bulletText = `- ${safeText(item)}`;
+    const bulletHeight = doc.heightOfString(bulletText, {
+      width: CONTENT_WIDTH - bulletIndent,
+      lineGap: 2,
+    });
+
+    ensureSpace(doc, bulletHeight + 4);
     doc
-      .font("Helvetica")
-      .fontSize(10)
       .fillColor("#374151")
-      .text(`• ${item}`, PAGE_MARGIN + 10, doc.y, {
-        width: CONTENT_WIDTH - 10,
+      .text(bulletText, PAGE_MARGIN + bulletIndent, doc.y, {
+        width: CONTENT_WIDTH - bulletIndent,
         lineGap: 2,
       });
   });
@@ -120,68 +173,119 @@ function formatCurrencyValue(value, currency) {
   }
 }
 
-function formatRange(range, currency, suffix = "") {
+function formatRange(range, currency) {
   if (!range) {
     return "N/A";
   }
 
-  return `${formatCurrencyValue(range.low, currency)} - ${formatCurrencyValue(range.high, currency)} (mid: ${formatCurrencyValue(range.mid, currency)})${suffix}`;
+  return `${formatCurrencyValue(range.low, currency)} - ${formatCurrencyValue(range.high, currency)} (mid: ${formatCurrencyValue(range.mid, currency)})`;
 }
 
 function addKeyValueGrid(doc, rows) {
-  rows.forEach(([label, value]) => {
-    addLabelValue(doc, label, value);
-  });
+  rows.forEach(([label, value]) => addLabelValue(doc, label, value));
 }
 
 function addLocalityCard(doc, locality, currency) {
-  ensureSpace(doc, 80);
-  const startY = doc.y;
-  const boxHeight = 78;
+  const title = locality?.name || "Unnamed locality";
+  const meta = `Type: ${safeText(locality?.type)} | Avg Price/Sqft: ${formatCurrencyValue(locality?.avg_price_per_sqft, currency)}`;
+  const highlights = `Highlights: ${safeText(locality?.highlights)}`;
+  const connectivity = `Connectivity: ${safeText(locality?.connectivity)}`;
 
+  doc.font("Helvetica-Bold").fontSize(11);
+  const titleHeight = doc.heightOfString(title, {
+    width: CONTENT_WIDTH - 24,
+  });
+
+  doc.font("Helvetica").fontSize(9.5);
+  const metaHeight = doc.heightOfString(meta, {
+    width: CONTENT_WIDTH - 24,
+    lineGap: 2,
+  });
+  const highlightsHeight = doc.heightOfString(highlights, {
+    width: CONTENT_WIDTH - 24,
+    lineGap: 2,
+  });
+  const connectivityHeight = doc.heightOfString(connectivity, {
+    width: CONTENT_WIDTH - 24,
+    lineGap: 2,
+  });
+
+  const padding = 12;
+  const contentHeight =
+    titleHeight + metaHeight + highlightsHeight + connectivityHeight + padding * 2 + 12;
+
+  ensureSpace(doc, contentHeight + 8);
+
+  const startY = doc.y;
   doc
-    .roundedRect(PAGE_MARGIN, startY, CONTENT_WIDTH, boxHeight, 6)
+    .roundedRect(PAGE_MARGIN, startY, CONTENT_WIDTH, contentHeight, 6)
     .fillAndStroke("#F8FAFC", "#D8E1EA");
+
+  let currentY = startY + padding;
 
   doc
     .fillColor("#12355B")
     .font("Helvetica-Bold")
     .fontSize(11)
-    .text(locality.name || "Unnamed locality", PAGE_MARGIN + 12, startY + 10, {
+    .text(title, PAGE_MARGIN + 12, currentY, {
       width: CONTENT_WIDTH - 24,
     });
 
+  currentY = doc.y + 4;
   doc
     .font("Helvetica")
     .fontSize(9.5)
     .fillColor("#374151")
-    .text(
-      `Type: ${locality.type || "N/A"}    Avg Price/Sqft: ${formatCurrencyValue(locality.avg_price_per_sqft, currency)}`,
-      PAGE_MARGIN + 12,
-      startY + 28,
-      { width: CONTENT_WIDTH - 24 }
-    )
-    .text(`Highlights: ${locality.highlights || "N/A"}`, PAGE_MARGIN + 12, startY + 43, {
+    .text(meta, PAGE_MARGIN + 12, currentY, {
       width: CONTENT_WIDTH - 24,
-    })
-    .text(`Connectivity: ${locality.connectivity || "N/A"}`, PAGE_MARGIN + 12, startY + 58, {
-      width: CONTENT_WIDTH - 24,
+      lineGap: 2,
     });
 
-  doc.y = startY + boxHeight + 8;
+  currentY = doc.y + 3;
+  doc.text(highlights, PAGE_MARGIN + 12, currentY, {
+    width: CONTENT_WIDTH - 24,
+    lineGap: 2,
+  });
+
+  currentY = doc.y + 3;
+  doc.text(connectivity, PAGE_MARGIN + 12, currentY, {
+    width: CONTENT_WIDTH - 24,
+    lineGap: 2,
+  });
+
+  doc.y = startY + contentHeight + 8;
 }
 
 function sanitizeFileName(value) {
-  return String(value || "report")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "report";
+  return (
+    String(value || "report")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "report"
+  );
 }
 
 export function buildReportFileName(report) {
   const locationName = report?.location?.name || "real-estate-report";
   return `${sanitizeFileName(locationName)}-market-report.pdf`;
+}
+
+function addFooter(doc) {
+  const range = doc.bufferedPageRange();
+  const pageCount = range.count;
+
+  for (let index = 0; index < pageCount; index += 1) {
+    doc.switchToPage(index);
+    doc
+      .font("Helvetica")
+      .fontSize(8)
+      .fillColor("#6B7280")
+      .text(`Page ${index + 1} of ${pageCount}`, PAGE_MARGIN, doc.page.height - 24, {
+        width: CONTENT_WIDTH,
+        align: "center",
+      });
+  }
 }
 
 export function buildReportPdf(report) {
@@ -190,6 +294,7 @@ export function buildReportPdf(report) {
       margin: PAGE_MARGIN,
       size: "A4",
       bufferPages: true,
+      autoFirstPage: true,
     });
 
     const chunks = [];
@@ -221,7 +326,7 @@ export function buildReportPdf(report) {
       .font("Helvetica-Bold")
       .fontSize(16)
       .fillColor("#111827")
-      .text(report?.location?.name || "Location unavailable", {
+      .text(safeText(report?.location?.name || "Location unavailable"), {
         width: CONTENT_WIDTH,
       });
 
@@ -231,17 +336,18 @@ export function buildReportPdf(report) {
       .fontSize(10)
       .fillColor("#4B5563")
       .text(
-        `${report?.location?.region || "N/A"}, ${report?.location?.country || "N/A"} | Generated: ${generatedAt}`,
+        `${safeText(report?.location?.region)}, ${safeText(report?.location?.country)} | Generated: ${generatedAt}`,
         { width: CONTENT_WIDTH }
       );
 
+    const ruleY = doc.y + 6;
     doc
-      .moveDown(0.6)
       .lineWidth(1.2)
       .strokeColor("#12355B")
-      .moveTo(PAGE_MARGIN, doc.y)
-      .lineTo(PAGE_MARGIN + CONTENT_WIDTH, doc.y)
+      .moveTo(PAGE_MARGIN, ruleY)
+      .lineTo(PAGE_MARGIN + CONTENT_WIDTH, ruleY)
       .stroke();
+    doc.y = ruleY + 10;
 
     addSectionTitle(doc, "Executive Summary");
     addParagraphs(doc, report?.summary);
@@ -262,7 +368,7 @@ export function buildReportPdf(report) {
     addSectionTitle(doc, "Market Overview");
     addParagraphs(doc, report?.market_overview?.summary);
     addLabelValue(doc, "Demand vs Supply", report?.market_overview?.demand_supply_dynamics);
-    addLabelValue(doc, "Key Economic Drivers", "");
+    addLabelValue(doc, "Key Economic Drivers", " ");
     addBullets(doc, report?.market_overview?.key_economic_drivers);
 
     addSectionTitle(doc, "Average Prices");
@@ -322,7 +428,7 @@ export function buildReportPdf(report) {
       ["1 Year Outlook", report?.price_trends?.forecast?.short_term_1yr],
       ["3 Year Outlook", report?.price_trends?.forecast?.medium_term_3yr],
     ]);
-    addLabelValue(doc, "Trend Drivers", "");
+    addLabelValue(doc, "Trend Drivers", " ");
     addBullets(doc, report?.price_trends?.factors_influencing_trends);
 
     addSectionTitle(doc, "Investment Insights");
@@ -333,41 +439,26 @@ export function buildReportPdf(report) {
           ? `${formatNumber(report.investment_insights.rental_yield_pct.low)}% - ${formatNumber(report.investment_insights.rental_yield_pct.high)}%`
           : "N/A",
       ],
-      [
-        "Recommended Horizon",
-        report?.investment_insights?.recommended_investment_horizon,
-      ],
+      ["Recommended Horizon", report?.investment_insights?.recommended_investment_horizon],
       ["Risk Level", report?.investment_insights?.risk_level],
     ]);
-    addLabelValue(doc, "Best Segments", "");
+    addLabelValue(doc, "Best Segments", " ");
     addBullets(doc, report?.investment_insights?.best_segments);
-    addLabelValue(doc, "Emerging Hotspots", "");
+    addLabelValue(doc, "Emerging Hotspots", " ");
     addBullets(doc, report?.investment_insights?.emerging_hotspots);
-    addLabelValue(doc, "Investor Tips", "");
+    addLabelValue(doc, "Investor Tips", " ");
     addBullets(doc, report?.investment_insights?.tips);
 
     addSectionTitle(doc, "Pros and Cons");
-    addLabelValue(doc, "Pros", "");
+    addLabelValue(doc, "Pros", " ");
     addBullets(doc, report?.pros_and_cons?.pros);
-    addLabelValue(doc, "Cons", "");
+    addLabelValue(doc, "Cons", " ");
     addBullets(doc, report?.pros_and_cons?.cons);
 
     addSectionTitle(doc, "Disclaimer");
     addParagraphs(doc, report?.disclaimer);
 
-    const pageCount = doc.bufferedPageRange().count;
-    for (let index = 0; index < pageCount; index += 1) {
-      doc.switchToPage(index);
-      doc
-        .font("Helvetica")
-        .fontSize(8)
-        .fillColor("#6B7280")
-        .text(`Page ${index + 1} of ${pageCount}`, PAGE_MARGIN, doc.page.height - 30, {
-          width: CONTENT_WIDTH,
-          align: "center",
-        });
-    }
-
+    addFooter(doc);
     doc.end();
   });
 }
